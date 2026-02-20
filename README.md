@@ -78,7 +78,7 @@ To verify openpi is working, start the policy server manually:
 export CUDA_VISIBLE_DEVICES=1
 export OPENPI_DATA_HOME=/scratch/emersonhsieh/data/openpi
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.5
-uv run ./scripts/serve_policy.py policy:checkpoint --policy.config=pi05_droid_jointpos_polaris --policy.dir=gs://openpi-assets/checkpoints/pi05_droid_jointpos
+uv run ./scripts/serve_policy.py --port 8001 policy:checkpoint --policy.config=pi05_droid_jointpos_polaris --policy.dir=gs://openpi-assets/checkpoints/pi05_droid_jointpos
 ```
 
 **Why the transformers patch is needed:** OpenPi's Pi0 model uses a custom PaliGemma architecture (Gemma 2B language model + SigLIP vision encoder + action expert) that differs from the standard HuggingFace implementations. The `transformers_replace/` directory contains modified versions of the `gemma`, `paligemma`, and `siglip` model files that are compatible with OpenPi's architecture. These patched files are copied directly into the installed `transformers` package, replacing the stock model implementations. The Pi0 model checks at initialization that this patch has been applied correctly and will refuse to load without it.
