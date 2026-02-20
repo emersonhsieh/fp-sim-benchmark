@@ -12,7 +12,7 @@ Usage (from the openpi directory):
         --checkpoint s3://openpi-assets-simeval/pi0_fast_droid_jointpos \
         --dtype float16 \
         --mode weights_only \
-        --port 8000
+        --port 8001
 """
 
 import sys
@@ -57,7 +57,7 @@ def parse_args():
     parser.add_argument("--mode", default="none",
                         choices=["none", "weights_only", "activations_only", "both"],
                         help="Quantization mode")
-    parser.add_argument("--port", type=int, default=8000, help="WebSocket server port")
+    parser.add_argument("--port", type=int, default=8001, help="WebSocket server port")
     return parser.parse_args()
 
 
