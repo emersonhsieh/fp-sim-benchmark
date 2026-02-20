@@ -153,6 +153,7 @@ def run_sim_eval(scene, episodes, port=8001, gpu=None):
         "--episodes", str(episodes),
         "--scene", str(scene),
         "--headless",
+        "--port", str(port),
     ]
 
     env = {**os.environ}

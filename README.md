@@ -65,7 +65,20 @@ GIT_LFS_SKIP_SMUDGE=1 uv sync
 cp -r src/openpi/models_pytorch/transformers_replace/* \
   .venv/lib/python3.11/site-packages/transformers/
 
+# Download simulation assets
+uvx hf download owhan/DROID-sim-environments --repo-type dataset --local-dir assets
+
 cd ..
+```
+
+To verify openpi is working, start the policy server manually:
+
+```bash
+# in ./openpi
+export CUDA_VISIBLE_DEVICES=1
+export OPENPI_DATA_HOME=/scratch/emersonhsieh/data/openpi
+export XLA_PYTHON_CLIENT_MEM_FRACTION=0.5
+uv run ./scripts/serve_policy.py policy:checkpoint --policy.config=pi05_droid_jointpos_polaris --policy.dir=gs://openpi-assets/checkpoints/pi05_droid_jointpos
 ```
 
 **Why the transformers patch is needed:** OpenPi's Pi0 model uses a custom PaliGemma architecture (Gemma 2B language model + SigLIP vision encoder + action expert) that differs from the standard HuggingFace implementations. The `transformers_replace/` directory contains modified versions of the `gemma`, `paligemma`, and `siglip` model files that are compatible with OpenPi's architecture. These patched files are copied directly into the installed `transformers` package, replacing the stock model implementations. The Pi0 model checks at initialization that this patch has been applied correctly and will refuse to load without it.
@@ -76,11 +89,18 @@ cd ..
 cd sim-evals
 ```
 
-Follow the setup instructions in [sim-evals/README.md](sim-evals/README.md). This requires IsaacLab / Isaac Sim. Ensure `run_eval.py` works standalone before running benchmarks:
+Follow the setup instructions in [sim-evals/README.md](sim-evals/README.md). This requires IsaacLab / Isaac Sim.
 
 ```bash
-# Test that sim-evals works (in a separate terminal, start the policy server first)
-uv run python run_eval.py --episodes 1 --scene 1 --headless
+# Download simulation assets
+uvx hf download owhan/DROID-sim-environments --repo-type dataset --local-dir assets
+```
+
+Ensure `run_eval.py` works standalone before running benchmarks (start the policy server from step 2 first in a separate terminal):
+
+```bash
+# Test that sim-evals works
+uv run python run_eval.py --episodes 1 --scene 1 --port 8001 --headless
 ```
 
 ```bash
@@ -197,7 +217,7 @@ python run_benchmark.py \
 | `--scenes` | 1 2 3 | Scene numbers to evaluate |
 | `--dtypes` | all 8 types | Precision types to test |
 | `--modes` | all 3 modes | Quantization modes |
-| `--port` | 8000 | WebSocket server port |
+| `--port` | 8001 | WebSocket server port |
 | `--server-timeout` | 300 | Server startup timeout (seconds) |
 | `--config` | pi05_droid_jointpos_polaris | OpenPi training config name |
 | `--checkpoint` | gs://openpi-assets/checkpoints/pi05_droid_jointpos | Model checkpoint path |
