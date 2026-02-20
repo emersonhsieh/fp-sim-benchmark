@@ -87,7 +87,7 @@ SCENE_LABELS = {
 
 def start_server(dtype, mode, port=8001, config="pi05_droid_jointpos_polaris",
                  checkpoint="gs://openpi-assets/checkpoints/pi05_droid_jointpos",
-                 gpu=None, openpi_data_home=None):
+                 gpu=None, openpi_data_home=None, log_dir=None):
     """Start quantized policy server as a subprocess in the openpi environment."""
     cmd = [
         "uv", "run",
@@ -106,13 +106,25 @@ def start_server(dtype, mode, port=8001, config="pi05_droid_jointpos_polaris",
         env["CUDA_VISIBLE_DEVICES"] = str(gpu)
     if openpi_data_home is not None:
         env["OPENPI_DATA_HOME"] = str(openpi_data_home)
+
+    # Redirect stdout/stderr to log files to avoid pipe buffer deadlock.
+    # If pipes fill up (64KB), the server process blocks on write() and hangs.
+    stdout_file = None
+    stderr_file = None
+    if log_dir is not None:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_name = f"server_{dtype}_{mode}"
+        stdout_file = open(log_dir / f"{log_name}_stdout.log", "w")
+        stderr_file = open(log_dir / f"{log_name}_stderr.log", "w")
+
     proc = subprocess.Popen(
         cmd,
         cwd=str(OPENPI_DIR),
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=stdout_file or subprocess.DEVNULL,
+        stderr=stderr_file or subprocess.DEVNULL,
     )
+    proc._log_files = (stdout_file, stderr_file)  # stash for cleanup
     return proc
 
 
@@ -132,14 +144,17 @@ def wait_for_server(port=8001, timeout=300, poll_interval=5):
 
 def stop_server(proc):
     """Gracefully stop the server subprocess."""
-    if proc.poll() is not None:
-        return  # already exited
-    proc.terminate()
-    try:
-        proc.wait(timeout=30)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+    # Close log files if any
+    for f in getattr(proc, "_log_files", (None, None)):
+        if f is not None:
+            f.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -162,6 +177,9 @@ def run_sim_eval(scene, episodes, port=8001, gpu=None):
 
     timeout_sec = episodes * 300  # 5 min per episode, generous
 
+    # Record time before launching so we only pick up newly-created summaries
+    start_time = time.time()
+
     try:
         result = subprocess.run(
             cmd,
@@ -178,9 +196,13 @@ def run_sim_eval(scene, episodes, port=8001, gpu=None):
         print(f"    [ERROR] run_eval.py timed out after {timeout_sec}s")
         return None
 
-    # Find the most recent summary.json
+    # Find summary.json created after we launched run_eval.py
     runs_dir = SIM_EVALS_DIR / "runs"
-    summaries = sorted(runs_dir.glob("*/*/summary.json"), key=lambda p: p.stat().st_mtime)
+    summaries = [
+        p for p in runs_dir.glob("*/*/summary.json")
+        if p.stat().st_mtime >= start_time
+    ]
+    summaries.sort(key=lambda p: p.stat().st_mtime)
     if not summaries:
         print("    [ERROR] No summary.json found after run")
         return None
@@ -465,7 +487,8 @@ def main():
         print(f"  Starting server (dtype={dtype}, mode={mode})...")
         server_proc = start_server(dtype, mode, port=args.port,
                                    config=args.config, checkpoint=args.checkpoint,
-                                   gpu=args.gpu, openpi_data_home=args.openpi_data_home)
+                                   gpu=args.gpu, openpi_data_home=args.openpi_data_home,
+                                   log_dir=output_dir / "server_logs")
 
         try:
             print(f"  Waiting for server to be ready (timeout={args.server_timeout}s)...")
