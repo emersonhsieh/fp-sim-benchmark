@@ -186,8 +186,14 @@ def run_sim_eval(scene, episodes, port=8001, gpu=None):
         return None
 
     latest = summaries[-1]
+    run_dir = latest.parent
     with open(latest) as f:
         summary = json.load(f)
+
+    # Collect video file paths relative to sim-evals/
+    videos = sorted(run_dir.glob("episode_*.mp4"))
+    summary["_run_dir"] = str(run_dir)
+    summary["_videos"] = [str(v) for v in videos]
 
     return summary
 
@@ -445,6 +451,7 @@ def main():
     print()
 
     results = {}
+    video_index = []  # List of {dtype, mode, scene, episode, video_path, success}
 
     for ci, (dtype, mode) in enumerate(configs):
         config_key = f"{dtype}_{mode}"
@@ -483,6 +490,30 @@ def main():
                     }
                     status = "PASS" if sr > 0 else "FAIL"
                     print(f"    Result: {succ}/{total} ({sr:.0%}) [{status}]")
+
+                    # Collect video index entries
+                    run_dir = Path(summary.get("_run_dir", ""))
+                    for video_path in summary.get("_videos", []):
+                        vp = Path(video_path)
+                        # Extract episode number from filename (episode_0.mp4 -> 0)
+                        ep_str = vp.stem.replace("episode_", "")
+                        ep_num = int(ep_str) if ep_str.isdigit() else -1
+
+                        # Try to read per-episode success from state log
+                        ep_success = None
+                        state_log = run_dir / "state_logs" / f"episode_{ep_num}_state.json"
+                        if state_log.exists():
+                            with open(state_log) as sf:
+                                ep_success = json.load(sf).get("success", None)
+
+                        video_index.append({
+                            "dtype": dtype,
+                            "mode": mode,
+                            "scene": scene,
+                            "episode": ep_num,
+                            "success": ep_success,
+                            "video_path": str(vp),
+                        })
                 else:
                     results[config_key][f"scene_{scene}"] = {
                         "success_rate": 0,
@@ -533,6 +564,11 @@ def main():
     with open(results_path, "w") as f:
         json.dump(full_results, f, indent=2)
     print(f"\n  Results saved to: {results_path}")
+
+    video_index_path = output_dir / "video_index.json"
+    with open(video_index_path, "w") as f:
+        json.dump(video_index, f, indent=2)
+    print(f"  Video index saved to: {video_index_path} ({len(video_index)} entries)")
 
     # ── Generate graphs ──────────────────────────────────────────────────────
     print("\n  Generating graphs...")
