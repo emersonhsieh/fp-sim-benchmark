@@ -87,6 +87,8 @@ uv run ./scripts/serve_policy.py --port 8001 policy:checkpoint --policy.config=p
 
 ```bash
 cd sim-evals
+uv sync
+source .venv/bin/activate
 ```
 
 Follow the setup instructions in [sim-evals/README.md](sim-evals/README.md). This requires IsaacLab / Isaac Sim.
