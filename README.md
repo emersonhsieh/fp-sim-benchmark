@@ -111,11 +111,13 @@ cd ..
 
 ### 4. Install benchmark dependencies
 
-The orchestrator script (`run_benchmark.py`) only needs matplotlib and numpy:
+From the `fp-sim-benchmark` root directory:
 
 ```bash
-pip install matplotlib numpy
+uv sync
 ```
+
+This installs the orchestrator's dependencies (matplotlib, numpy) defined in `pyproject.toml`.
 
 ### 5. Environment variables
 

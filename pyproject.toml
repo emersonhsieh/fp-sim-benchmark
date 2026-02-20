@@ -1,0 +1,14 @@
+[project]
+name = "fp-sim-benchmark"
+version = "0.1.0"
+description = "FP precision sim-eval benchmark for Pi0 robot policies"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib>=3.8.0",
+    "numpy>=1.24.0,<2.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
