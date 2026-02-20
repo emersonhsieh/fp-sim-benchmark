@@ -1,0 +1,6 @@
+[submodule "openpi"]
+	path = openpi
+	url = git@github.com:emersonhsieh/openpi.git
+[submodule "sim-evals"]
+	path = sim-evals
+	url = https://github.com/emersonhsieh/sim-evals.git
