@@ -44,7 +44,7 @@ Measures the real-world impact of floating-point quantization on the Pi0 robot p
 ### 1. Clone with submodules
 
 ```bash
-git clone --recurse-submodules <this-repo-url>
+git clone --recurse-submodules git@github.com:emersonhsieh/fp-sim-benchmark.git
 cd fp-sim-benchmark
 ```
 

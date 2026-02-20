@@ -8,8 +8,8 @@ and serves via WebSocket. Designed to be run inside the openpi uv environment.
 Usage (from the openpi directory):
     XLA_PYTHON_CLIENT_MEM_FRACTION=0.5 uv run \
         /path/to/serve_quantized_policy.py \
-        --config pi0_fast_droid_jointpos \
-        --checkpoint s3://openpi-assets-simeval/pi0_fast_droid_jointpos \
+        --config pi05_droid_jointpos_polaris \
+        --checkpoint gs://openpi-assets/checkpoints/pi05_droid_jointpos \
         --dtype float16 \
         --mode weights_only \
         --port 8001
@@ -51,7 +51,7 @@ from quantization_utils import quantize_model_weights, ActivationQuantizer
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Serve a quantized OpenPi policy")
-    parser.add_argument("--config", required=True, help="Training config name (e.g. pi0_fast_droid_jointpos)")
+    parser.add_argument("--config", required=True, help="Training config name (e.g. pi05_droid_jointpos_polaris)")
     parser.add_argument("--checkpoint", required=True, help="Checkpoint dir or S3 path")
     parser.add_argument("--dtype", default="float32", help="Target dtype for quantization")
     parser.add_argument("--mode", default="none",

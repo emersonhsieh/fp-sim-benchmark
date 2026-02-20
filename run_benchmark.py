@@ -85,7 +85,7 @@ SCENE_LABELS = {
 # Server lifecycle
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def start_server(dtype, mode, port=8000, config="pi05_droid_jointpos_polaris",
+def start_server(dtype, mode, port=8001, config="pi05_droid_jointpos_polaris",
                  checkpoint="gs://openpi-assets/checkpoints/pi05_droid_jointpos",
                  gpu=None, openpi_data_home=None):
     """Start quantized policy server as a subprocess in the openpi environment."""
@@ -116,7 +116,7 @@ def start_server(dtype, mode, port=8000, config="pi05_droid_jointpos_polaris",
     return proc
 
 
-def wait_for_server(port=8000, timeout=300, poll_interval=5):
+def wait_for_server(port=8001, timeout=300, poll_interval=5):
     """Poll /healthz until server is ready or timeout."""
     start = time.time()
     while time.time() - start < timeout:
@@ -146,7 +146,7 @@ def stop_server(proc):
 # Sim-eval execution
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_sim_eval(scene, episodes, port=8000, gpu=None):
+def run_sim_eval(scene, episodes, port=8001, gpu=None):
     """Run sim-eval for a single scene. Returns the summary dict or None on failure."""
     cmd = [
         "uv", "run", "python", str(SIM_EVALS_DIR / "run_eval.py"),
@@ -387,8 +387,8 @@ def parse_args():
                         help=f"Dtype names to test (default: {' '.join(ALL_DTYPES)})")
     parser.add_argument("--modes", nargs="+", default=ALL_MODES,
                         help=f"Quantization modes (default: {' '.join(ALL_MODES)})")
-    parser.add_argument("--port", type=int, default=8000,
-                        help="Server port (default: 8000)")
+    parser.add_argument("--port", type=int, default=8001,
+                        help="Server port (default: 8001)")
     parser.add_argument("--server-timeout", type=int, default=300,
                         help="Server startup timeout in seconds (default: 300)")
     parser.add_argument("--config", default="pi05_droid_jointpos_polaris",
