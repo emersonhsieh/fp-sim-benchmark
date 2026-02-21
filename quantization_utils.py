@@ -196,8 +196,10 @@ def quantize_model_weights_nnx(model, dtype_name: str):
     Returns the new quantized model (nnx.split dehydrates the original,
     so we merge into a fresh model rather than trying to update in-place).
 
-    Memory-efficient: quantized results are cast back to the original dtype
-    (e.g. bfloat16) before uploading to GPU.
+    Memory-efficient: quantized results stay as numpy arrays (CPU) during the
+    loop to avoid doubling GPU memory. The old JAX arrays on GPU are freed when
+    state.replace_by_pure_dict replaces the Variable values. JAX converts the
+    numpy arrays back to GPU arrays on-demand during inference.
     """
     from flax import nnx
     import jax
@@ -218,17 +220,21 @@ def quantize_model_weights_nnx(model, dtype_name: str):
             orig_dtype = x.dtype
             np_val = np.asarray(x)
             q_val = quantize_numpy(np_val, dtype_name)
-            # Cast back to original numpy dtype to avoid doubling GPU memory
+            # Cast back to original dtype as numpy — stay on CPU to avoid
+            # GPU OOM (state still holds refs to the old GPU arrays).
             if orig_dtype == jnp.bfloat16:
                 q_val = q_val.astype(ml_dtypes.bfloat16)
             elif orig_dtype == jnp.float16:
                 q_val = q_val.astype(np.float16)
-            flat[i] = jnp.array(q_val)
+            flat[i] = q_val  # numpy array, NOT jnp.array — no GPU alloc
             count += 1
 
     quantized_params = treedef.unflatten(flat)
     del flat
 
+    # replace_by_pure_dict swaps Variable values from old JAX arrays to numpy
+    # arrays, releasing GPU memory. nnx.merge then rebuilds the model; JAX
+    # will transfer numpy→GPU on the first forward pass.
     state.replace_by_pure_dict(quantized_params)
     new_model = nnx.merge(graphdef, state)
 
