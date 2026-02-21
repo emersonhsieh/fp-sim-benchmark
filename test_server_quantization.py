@@ -81,7 +81,7 @@ def compute_param_diff(snap_before, snap_after):
         after = snap_after[key]
         total += 1
         diff = np.abs(before.astype(np.float64) - after.astype(np.float64))
-        if not np.allclose(before, after, atol=1e-7):
+        if not np.allclose(before.astype(np.float64), after.astype(np.float64), atol=1e-7):
             changed += 1
         max_diff = max(max_diff, float(diff.max()))
         sum_diff += float(diff.sum())

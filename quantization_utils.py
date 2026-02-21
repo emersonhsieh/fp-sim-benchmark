@@ -196,26 +196,41 @@ def quantize_model_weights_nnx(model, dtype_name: str) -> None:
 
     Iterates over all nnx.Param variables in the model and applies
     quantize-and-dequantize using numpy (framework-agnostic).
+
+    Memory-efficient: quantized results are cast back to the original dtype
+    (e.g. bfloat16) before uploading to GPU, and leaves are replaced one at a
+    time so the old arrays can be garbage-collected incrementally.
     """
     from flax import nnx
     import jax
     import jax.numpy as jnp
+    import ml_dtypes
 
     graphdef, state = nnx.split(model)
     params_dict = state.to_pure_dict()
 
-    count = 0
+    # Flatten and drop the nested dict so old arrays can be GC'd as we replace them
+    flat, treedef = jax.tree_util.tree_flatten(params_dict)
+    del params_dict
 
-    def quantize_leaf(x):
-        nonlocal count
+    count = 0
+    for i in range(len(flat)):
+        x = flat[i]
         if isinstance(x, jax.Array) and jnp.issubdtype(x.dtype, jnp.floating):
+            orig_dtype = x.dtype
             np_val = np.asarray(x)
             q_val = quantize_numpy(np_val, dtype_name)
+            # Cast back to original numpy dtype to avoid doubling GPU memory
+            if orig_dtype == jnp.bfloat16:
+                q_val = q_val.astype(ml_dtypes.bfloat16)
+            elif orig_dtype == jnp.float16:
+                q_val = q_val.astype(np.float16)
+            flat[i] = jnp.array(q_val)
             count += 1
-            return jnp.array(q_val)
-        return x
 
-    quantized_params = jax.tree.map(quantize_leaf, params_dict)
+    quantized_params = treedef.unflatten(flat)
+    del flat
+
     state.replace_by_pure_dict(quantized_params)
     new_model = nnx.merge(graphdef, state)
 
