@@ -49,7 +49,7 @@ from openpi.training import config as _config
 
 from quantization_utils import (
     quantize_model_weights, quantize_model_weights_nnx,
-    convert_model_to_float32_nnx, DTYPE_NAMES,
+    DTYPE_NAMES,
 )
 
 
@@ -101,11 +101,10 @@ def test_dtype(args, dtype_name, mode="weights_only"):
     is_pytorch = policy._is_pytorch_model
     logging.info(f"  Model type: {'PyTorch' if is_pytorch else 'JAX/Flax'}")
 
-    # Convert to float32 baseline
+    # Convert to float32 baseline (PyTorch only; JAX quantization handles
+    # bfloat16→float32 on CPU internally, avoiding GPU OOM)
     if is_pytorch:
         policy._model.paligemma_with_expert.to_bfloat16_for_selected_params("float32")
-    else:
-        convert_model_to_float32_nnx(policy._model)
 
     # Snapshot before quantization
     snap_before = get_param_snapshot(policy)
@@ -163,8 +162,6 @@ def test_inference(args, dtype_name="float16", mode="weights_only", port=8099):
 
     if is_pytorch:
         policy._model.paligemma_with_expert.to_bfloat16_for_selected_params("float32")
-    else:
-        convert_model_to_float32_nnx(policy._model)
 
     if dtype_name != "float32":
         if is_pytorch:

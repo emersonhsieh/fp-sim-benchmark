@@ -48,7 +48,7 @@ from openpi.serving import websocket_policy_server
 
 from quantization_utils import (
     quantize_model_weights, ActivationQuantizer,
-    quantize_model_weights_nnx, convert_model_to_float32_nnx,
+    quantize_model_weights_nnx,
 )
 
 
@@ -74,15 +74,13 @@ def main():
     train_config = _config.get_config(args.config)
     policy = _policy_config.create_trained_policy(train_config, args.checkpoint)
 
-    # 2. Convert model to float32 baseline before applying quantization.
-    #    create_trained_policy applies bfloat16 by default; we want a clean float32 start.
+    # 2. For PyTorch models, convert to float32 baseline before quantization.
+    #    For JAX/Flax models, skip this step to avoid GPU OOM — quantize_numpy
+    #    handles bfloat16→float32 conversion on CPU internally.
     is_pytorch = policy._is_pytorch_model
     if is_pytorch:
         logging.info("Converting PyTorch model to float32 baseline...")
         policy._model.paligemma_with_expert.to_bfloat16_for_selected_params("float32")
-    else:
-        logging.info("Converting JAX/Flax model to float32 baseline...")
-        convert_model_to_float32_nnx(policy._model)
 
     # 3. Apply quantization
     act_quantizer = None
