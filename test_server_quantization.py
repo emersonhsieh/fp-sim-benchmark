@@ -63,9 +63,12 @@ def get_param_snapshot(policy):
     else:
         from flax import nnx
         import jax
-        _, state = nnx.split(policy._model)
+        graphdef, state = nnx.split(policy._model)
         flat = jax.tree.leaves(state.to_pure_dict())
-        return {str(i): np.asarray(v).copy() for i, v in enumerate(flat)}
+        snapshot = {str(i): np.asarray(v).copy() for i, v in enumerate(flat)}
+        # Merge back to rehydrate the model (nnx.split dehydrates it)
+        policy._model = nnx.merge(graphdef, state)
+        return snapshot
 
 
 def compute_param_diff(snap_before, snap_after):
@@ -117,7 +120,7 @@ def test_dtype(args, dtype_name, mode="weights_only"):
     elif is_pytorch:
         quantize_model_weights(policy._model, dtype_name)
     else:
-        quantize_model_weights_nnx(policy._model, dtype_name)
+        policy._model = quantize_model_weights_nnx(policy._model, dtype_name)
     quant_time = time.time() - t0
 
     # Snapshot after quantization
@@ -167,7 +170,7 @@ def test_inference(args, dtype_name="float16", mode="weights_only", port=8099):
         if is_pytorch:
             quantize_model_weights(policy._model, dtype_name)
         else:
-            quantize_model_weights_nnx(policy._model, dtype_name)
+            policy._model = quantize_model_weights_nnx(policy._model, dtype_name)
 
     # Start server in background thread
     server = websocket_policy_server.WebsocketPolicyServer(

@@ -190,15 +190,14 @@ class ActivationQuantizer:
 # JAX / Flax NNX quantization
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def quantize_model_weights_nnx(model, dtype_name: str) -> None:
-    """Quantize all Flax NNX model weights in-place.
+def quantize_model_weights_nnx(model, dtype_name: str):
+    """Quantize all Flax NNX model weights.
 
-    Iterates over all nnx.Param variables in the model and applies
-    quantize-and-dequantize using numpy (framework-agnostic).
+    Returns the new quantized model (nnx.split dehydrates the original,
+    so we merge into a fresh model rather than trying to update in-place).
 
     Memory-efficient: quantized results are cast back to the original dtype
-    (e.g. bfloat16) before uploading to GPU, and leaves are replaced one at a
-    time so the old arrays can be garbage-collected incrementally.
+    (e.g. bfloat16) before uploading to GPU.
     """
     from flax import nnx
     import jax
@@ -230,16 +229,15 @@ def quantize_model_weights_nnx(model, dtype_name: str) -> None:
     quantized_params = treedef.unflatten(flat)
     del flat
 
-    # Put quantized values back into the State's Variable containers
-    # and rehydrate the original model in-place.
     state.replace_by_pure_dict(quantized_params)
-    nnx.update(model, state)
+    new_model = nnx.merge(graphdef, state)
 
     logger.info(f"Quantized {count} parameter arrays to {dtype_name}")
+    return new_model
 
 
-def convert_model_to_float32_nnx(model) -> None:
-    """Convert all Flax NNX model params to float32 in-place."""
+def convert_model_to_float32_nnx(model):
+    """Convert all Flax NNX model params to float32. Returns the new model."""
     from flax import nnx
     import jax
     import jax.numpy as jnp
@@ -254,4 +252,4 @@ def convert_model_to_float32_nnx(model) -> None:
 
     f32_params = jax.tree.map(to_f32, params_dict)
     state.replace_by_pure_dict(f32_params)
-    nnx.update(model, state)
+    return nnx.merge(graphdef, state)

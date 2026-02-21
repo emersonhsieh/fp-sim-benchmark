@@ -266,7 +266,7 @@ def test_nnx_model_quantization():
             orig_params = jax.tree.map(lambda x: np.array(x), state.to_pure_dict())
 
             # Quantize
-            quantize_model_weights_nnx(model, dtype_name)
+            model = quantize_model_weights_nnx(model, dtype_name)
 
             # Check params changed
             _, new_state = nnx.split(model)
@@ -307,7 +307,7 @@ def test_nnx_model_quantization():
         model = nnx.merge(graphdef, state)
 
         # Convert to float32
-        convert_model_to_float32_nnx(model)
+        model = convert_model_to_float32_nnx(model)
 
         # Check all params are float32
         _, state = nnx.split(model)

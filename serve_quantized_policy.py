@@ -91,7 +91,7 @@ def main():
             if is_pytorch:
                 quantize_model_weights(policy._model, args.dtype)
             else:
-                quantize_model_weights_nnx(policy._model, args.dtype)
+                policy._model = quantize_model_weights_nnx(policy._model, args.dtype)
             logging.info("Weight quantization complete.")
 
         if args.mode in ("activations_only", "both"):
