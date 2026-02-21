@@ -45,13 +45,12 @@ def quantize_numpy(x: np.ndarray, dtype_name: str) -> np.ndarray:
         return src.astype(ml_dtypes.bfloat16).astype(np.float32)
     if dtype_name == "float8_e4m3":
         import ml_dtypes
-        finfo = np.finfo(ml_dtypes.float8_e4m3fn)
-        clamped = np.clip(src, finfo.min, finfo.max)
+        # np.finfo doesn't work with ml_dtypes float8 on older numpy
+        clamped = np.clip(src, -448.0, 448.0)
         return clamped.astype(ml_dtypes.float8_e4m3fn).astype(np.float32)
     if dtype_name == "float8_e5m2":
         import ml_dtypes
-        finfo = np.finfo(ml_dtypes.float8_e5m2fnuz)
-        clamped = np.clip(src, finfo.min, finfo.max)
+        clamped = np.clip(src, -57344.0, 57344.0)
         return clamped.astype(ml_dtypes.float8_e5m2fnuz).astype(np.float32)
 
     # ── Integer / boolean types: linear quantization ─────────────────────────
@@ -231,15 +230,10 @@ def quantize_model_weights_nnx(model, dtype_name: str) -> None:
     quantized_params = treedef.unflatten(flat)
     del flat
 
+    # Put quantized values back into the State's Variable containers
+    # and rehydrate the original model in-place.
     state.replace_by_pure_dict(quantized_params)
-    new_model = nnx.merge(graphdef, state)
-
-    # Copy quantized state back into the original model object in-place
-    # so the caller's reference stays valid.
-    orig_graphdef, orig_state = nnx.split(model)
-    _, new_state = nnx.split(new_model)
-    orig_state.replace_by_pure_dict(new_state.to_pure_dict())
-    nnx.update(model, nnx.merge(orig_graphdef, orig_state))
+    nnx.update(model, state)
 
     logger.info(f"Quantized {count} parameter arrays to {dtype_name}")
 
@@ -260,9 +254,4 @@ def convert_model_to_float32_nnx(model) -> None:
 
     f32_params = jax.tree.map(to_f32, params_dict)
     state.replace_by_pure_dict(f32_params)
-    new_model = nnx.merge(graphdef, state)
-
-    orig_graphdef, orig_state = nnx.split(model)
-    _, new_state = nnx.split(new_model)
-    orig_state.replace_by_pure_dict(new_state.to_pure_dict())
-    nnx.update(model, nnx.merge(orig_graphdef, orig_state))
+    nnx.update(model, state)
