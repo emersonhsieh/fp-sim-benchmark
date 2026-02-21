@@ -46,7 +46,10 @@ from openpi.policies import policy_config as _policy_config
 from openpi.training import config as _config
 from openpi.serving import websocket_policy_server
 
-from quantization_utils import quantize_model_weights, ActivationQuantizer
+from quantization_utils import (
+    quantize_model_weights, ActivationQuantizer,
+    quantize_model_weights_nnx, convert_model_to_float32_nnx,
+)
 
 
 def parse_args():
@@ -73,9 +76,13 @@ def main():
 
     # 2. Convert model to float32 baseline before applying quantization.
     #    create_trained_policy applies bfloat16 by default; we want a clean float32 start.
-    if policy._is_pytorch_model:
-        logging.info("Converting model to float32 baseline...")
+    is_pytorch = policy._is_pytorch_model
+    if is_pytorch:
+        logging.info("Converting PyTorch model to float32 baseline...")
         policy._model.paligemma_with_expert.to_bfloat16_for_selected_params("float32")
+    else:
+        logging.info("Converting JAX/Flax model to float32 baseline...")
+        convert_model_to_float32_nnx(policy._model)
 
     # 3. Apply quantization
     act_quantizer = None
@@ -83,13 +90,22 @@ def main():
     if args.dtype != "float32" and args.mode != "none":
         if args.mode in ("weights_only", "both"):
             logging.info(f"Quantizing weights to {args.dtype}...")
-            quantize_model_weights(policy._model, args.dtype)
+            if is_pytorch:
+                quantize_model_weights(policy._model, args.dtype)
+            else:
+                quantize_model_weights_nnx(policy._model, args.dtype)
             logging.info("Weight quantization complete.")
 
         if args.mode in ("activations_only", "both"):
-            logging.info(f"Attaching activation quantizer for {args.dtype}...")
-            act_quantizer = ActivationQuantizer(policy._model, args.dtype)
-            logging.info(f"Activation quantizer attached ({len(act_quantizer.hooks)} hooks).")
+            if is_pytorch:
+                logging.info(f"Attaching activation quantizer for {args.dtype}...")
+                act_quantizer = ActivationQuantizer(policy._model, args.dtype)
+                logging.info(f"Activation quantizer attached ({len(act_quantizer.hooks)} hooks).")
+            else:
+                logging.warning(
+                    "Activation quantization is not supported for JAX/Flax models. "
+                    "Skipping activation quantization. Only weight quantization will be applied."
+                )
 
     # 4. Serve
     hostname = socket.gethostname()

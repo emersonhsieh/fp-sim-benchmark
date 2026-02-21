@@ -1,11 +1,15 @@
 """
 Quantization utilities for FP precision benchmarking.
-Extracted from fp-benchmarks/benchmark.py for reuse across projects.
+Supports both PyTorch (nn.Module) and JAX/Flax NNX models.
 """
 
+import logging
+
+import numpy as np
 import torch
 import torch.nn as nn
 
+logger = logging.getLogger(__name__)
 
 DTYPE_NAMES = [
     "float32", "float16", "bfloat16",
@@ -16,18 +20,78 @@ DTYPE_NAMES = [
 QUANTIZATION_MODES = ["weights_only", "activations_only", "both"]
 
 
-def quantize_tensor(x: torch.Tensor, dtype_name: str) -> torch.Tensor:
-    """Quantize a tensor to the target dtype and convert back to float32.
+# ═══════════════════════════════════════════════════════════════════════════════
+# Core quantization (numpy-based, framework-agnostic)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def quantize_numpy(x: np.ndarray, dtype_name: str) -> np.ndarray:
+    """Quantize a numpy array to the target dtype and convert back to float32.
 
     For float dtypes this is a simple cast-and-back.
     For integer / boolean dtypes we use min-max linear quantization.
     """
+    if x.size == 0:
+        return x.copy()
+
+    src = x.astype(np.float32)
+
+    # ── Float types: direct cast round-trip ──────────────────────────────────
+    if dtype_name == "float32":
+        return src.copy()
+    if dtype_name == "float16":
+        return src.astype(np.float16).astype(np.float32)
+    if dtype_name == "bfloat16":
+        import ml_dtypes
+        return src.astype(ml_dtypes.bfloat16).astype(np.float32)
+    if dtype_name == "float8_e4m3":
+        import ml_dtypes
+        finfo = np.finfo(ml_dtypes.float8_e4m3fn)
+        clamped = np.clip(src, finfo.min, finfo.max)
+        return clamped.astype(ml_dtypes.float8_e4m3fn).astype(np.float32)
+    if dtype_name == "float8_e5m2":
+        import ml_dtypes
+        finfo = np.finfo(ml_dtypes.float8_e5m2fnuz)
+        clamped = np.clip(src, finfo.min, finfo.max)
+        return clamped.astype(ml_dtypes.float8_e5m2fnuz).astype(np.float32)
+
+    # ── Integer / boolean types: linear quantization ─────────────────────────
+    xmin = src.min()
+    xmax = src.max()
+    span = xmax - xmin
+    if span == 0:
+        return src.copy()
+
+    if dtype_name == "boolean":
+        median = np.median(src)
+        return np.where(src > median, xmax, xmin).astype(np.float32)
+
+    if dtype_name == "int32":
+        qmin, qmax = -(2**31), 2**31 - 1
+        scale = span / (qmax - qmin)
+        zero_point = round(float(xmin / scale)) - qmin
+        quantized = np.clip(np.round(src / scale) + zero_point, qmin, qmax).astype(np.int32)
+        return ((quantized.astype(np.float32) - zero_point) * scale)
+
+    if dtype_name == "uint32":
+        qmin, qmax = 0, 2**32 - 1
+        scale = span / (qmax - qmin)
+        quantized = np.clip(np.round((src - xmin) / scale), 0, qmax).astype(np.int64)
+        return (quantized.astype(np.float32) * scale + xmin)
+
+    raise ValueError(f"Unsupported dtype: {dtype_name}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PyTorch quantization
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def quantize_tensor(x: torch.Tensor, dtype_name: str) -> torch.Tensor:
+    """Quantize a torch tensor to the target dtype and convert back to float32."""
     if x.numel() == 0:
         return x.clone()
 
     src = x.float()
 
-    # ── Float types: direct cast round-trip ──────────────────────────────────
     if dtype_name == "float32":
         return src.clone()
     if dtype_name == "float16":
@@ -43,7 +107,6 @@ def quantize_tensor(x: torch.Tensor, dtype_name: str) -> torch.Tensor:
         clamped = src.clamp(finfo.min, finfo.max)
         return clamped.to(torch.float8_e5m2fnuz).float()
 
-    # ── Integer / boolean types: linear quantization ─────────────────────────
     xmin = src.min()
     xmax = src.max()
     span = xmax - xmin
@@ -71,7 +134,7 @@ def quantize_tensor(x: torch.Tensor, dtype_name: str) -> torch.Tensor:
 
 
 def quantize_model_weights(model: nn.Module, dtype_name: str) -> dict:
-    """Quantize all model weights in-place. Returns dict of original weights (on CPU) for restoration."""
+    """Quantize all PyTorch model weights in-place. Returns originals for restoration."""
     originals = {}
     with torch.no_grad():
         for name, param in model.named_parameters():
@@ -82,7 +145,7 @@ def quantize_model_weights(model: nn.Module, dtype_name: str) -> dict:
 
 
 def restore_model_weights(model: nn.Module, originals: dict):
-    """Restore original weights after quantization."""
+    """Restore original PyTorch weights after quantization."""
     with torch.no_grad():
         for name, param in model.named_parameters():
             param.data = originals[name].to(param.device)
@@ -91,7 +154,7 @@ def restore_model_weights(model: nn.Module, originals: dict):
 
 
 class ActivationQuantizer:
-    """Registers forward hooks on all leaf modules to quantize their outputs."""
+    """Registers forward hooks on all leaf PyTorch modules to quantize their outputs."""
 
     def __init__(self, model: nn.Module, dtype_name: str):
         self.dtype_name = dtype_name
@@ -122,3 +185,69 @@ class ActivationQuantizer:
         for h in self.hooks:
             h.remove()
         self.hooks.clear()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# JAX / Flax NNX quantization
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def quantize_model_weights_nnx(model, dtype_name: str) -> None:
+    """Quantize all Flax NNX model weights in-place.
+
+    Iterates over all nnx.Param variables in the model and applies
+    quantize-and-dequantize using numpy (framework-agnostic).
+    """
+    from flax import nnx
+    import jax
+    import jax.numpy as jnp
+
+    graphdef, state = nnx.split(model)
+    params_dict = state.to_pure_dict()
+
+    count = 0
+
+    def quantize_leaf(x):
+        nonlocal count
+        if isinstance(x, jax.Array) and jnp.issubdtype(x.dtype, jnp.floating):
+            np_val = np.asarray(x)
+            q_val = quantize_numpy(np_val, dtype_name)
+            count += 1
+            return jnp.array(q_val)
+        return x
+
+    quantized_params = jax.tree.map(quantize_leaf, params_dict)
+    state.replace_by_pure_dict(quantized_params)
+    new_model = nnx.merge(graphdef, state)
+
+    # Copy quantized state back into the original model object in-place
+    # so the caller's reference stays valid.
+    orig_graphdef, orig_state = nnx.split(model)
+    _, new_state = nnx.split(new_model)
+    orig_state.replace_by_pure_dict(new_state.to_pure_dict())
+    nnx.update(model, nnx.merge(orig_graphdef, orig_state))
+
+    logger.info(f"Quantized {count} parameter arrays to {dtype_name}")
+
+
+def convert_model_to_float32_nnx(model) -> None:
+    """Convert all Flax NNX model params to float32 in-place."""
+    from flax import nnx
+    import jax
+    import jax.numpy as jnp
+
+    graphdef, state = nnx.split(model)
+    params_dict = state.to_pure_dict()
+
+    def to_f32(x):
+        if isinstance(x, jax.Array) and jnp.issubdtype(x.dtype, jnp.floating):
+            return x.astype(jnp.float32)
+        return x
+
+    f32_params = jax.tree.map(to_f32, params_dict)
+    state.replace_by_pure_dict(f32_params)
+    new_model = nnx.merge(graphdef, state)
+
+    orig_graphdef, orig_state = nnx.split(model)
+    _, new_state = nnx.split(new_model)
+    orig_state.replace_by_pure_dict(new_state.to_pure_dict())
+    nnx.update(model, nnx.merge(orig_graphdef, orig_state))

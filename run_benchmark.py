@@ -161,7 +161,7 @@ def stop_server(proc):
 # Sim-eval execution
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_sim_eval(scene, episodes, port=8001, gpu=None):
+def run_sim_eval(scene, episodes, port=8001):
     """Run sim-eval for a single scene. Returns the summary dict or None on failure."""
     cmd = [
         "uv", "run", "python", str(SIM_EVALS_DIR / "run_eval.py"),
@@ -171,9 +171,11 @@ def run_sim_eval(scene, episodes, port=8001, gpu=None):
         "--port", str(port),
     ]
 
+    # Don't set CUDA_VISIBLE_DEVICES for sim-eval: Isaac Sim uses Vulkan for
+    # rendering (which ignores CUDA_VISIBLE_DEVICES) and conflicts with it.
+    # Let Isaac Sim manage its own GPU selection.
     env = {**os.environ}
-    if gpu is not None:
-        env["CUDA_VISIBLE_DEVICES"] = str(gpu)
+    env.pop("CUDA_VISIBLE_DEVICES", None)
 
     timeout_sec = episodes * 300  # 5 min per episode, generous
 
@@ -499,8 +501,7 @@ def main():
                 print(f"\n  Scene {scene} ({si + 1}/{len(args.scenes)}), "
                       f"{args.episodes} episodes...")
 
-                summary = run_sim_eval(scene, args.episodes, port=args.port,
-                                      gpu=args.gpu)
+                summary = run_sim_eval(scene, args.episodes, port=args.port)
 
                 if summary:
                     sr = summary.get("success_rate", 0)
