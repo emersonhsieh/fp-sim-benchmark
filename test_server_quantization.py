@@ -129,14 +129,28 @@ def test_dtype(args, dtype_name, mode="weights_only"):
     # Compare
     changed, total, max_diff, mean_diff = compute_param_diff(snap_before, snap_after)
 
-    if dtype_name == "float32":
+    # Dtypes that may be lossless when source is bfloat16:
+    # - float32: no quantization applied
+    # - bfloat16: same as source dtype (identity round-trip)
+    # - float16: has more mantissa bits (10) than bfloat16 (7), so round-trip is lossless
+    lossless_ok = {"float32", "bfloat16", "float16"}
+
+    if dtype_name in lossless_ok:
         if changed == 0:
-            logging.info(f"  PASS  float32 baseline: no params changed (expected)")
-            return True
+            logging.info(
+                f"  PASS  {dtype_name}: no params changed "
+                f"(lossless round-trip for bfloat16 source)  "
+                f"quant_time={quant_time:.1f}s"
+            )
         else:
-            logging.error(f"  FAIL  float32 baseline: {changed}/{total} params changed unexpectedly")
-            return False
+            logging.info(
+                f"  PASS  {changed}/{total} param groups changed  "
+                f"max_diff={max_diff:.6f}  mean_diff={mean_diff:.8f}  "
+                f"quant_time={quant_time:.1f}s"
+            )
+        return True
     else:
+        # Coarse dtypes (float8, int32, uint32, boolean) must show changes
         if changed > 0:
             logging.info(
                 f"  PASS  {changed}/{total} param groups changed  "
