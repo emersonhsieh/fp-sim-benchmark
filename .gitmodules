@@ -4,3 +4,6 @@
 [submodule "sim-evals"]
 	path = sim-evals
 	url = https://github.com/emersonhsieh/sim-evals.git
+[submodule "pi0-quant"]
+	path = pi0-quant
+	url = git@github.com:emersonhsieh/pi0-quant.git
